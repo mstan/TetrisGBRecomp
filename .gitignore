@@ -1,0 +1,17 @@
+generated/
+build/
+logs/
+roms/
+banks/
+*.ppm
+*.gb
+*.gbc
+*.sav
+*.log
+*.zip
+.mcp.json
+imgui.ini
+*.lock
+*.lock~
+*.gpr
+*.rep/
