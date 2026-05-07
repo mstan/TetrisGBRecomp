@@ -5,6 +5,7 @@
 path = "roms/tetris.gb"
 output_dir = "generated"
 runtime_dir = "../gb-recompiled/runtime"
+output_prefix = "Tetris"
 
 [options]
 aggressive_scan = true
