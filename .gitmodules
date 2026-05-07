@@ -1,3 +1,0 @@
-[submodule "gb-recompiled"]
-	path = gb-recompiled
-	url = git@github.com:mstan/gbrecompiled.git
