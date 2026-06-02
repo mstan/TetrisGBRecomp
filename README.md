@@ -10,7 +10,6 @@ Built with the [gb-recompiled](https://github.com/mstan/gbrecompiled) framework.
 - All game modes (A-Type, B-Type)
 - Title screen, menus, demo/attract mode
 - Music and sound effects
-- Saving high scores
 
 ## Quick Start
 
