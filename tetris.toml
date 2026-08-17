@@ -1,15 +1,27 @@
-# Tetris (Japan) - Game Boy Static Recompiler Configuration
+# Tetris (World) V1.0 - Game Boy Static Recompiler Configuration
 # Used with: gbrecomp --config tetris.toml
+#
+# ROM identity: roms/tetris.gb — CRC32 0x63F9407D,
+# SHA-1 3f2a6407c9900ad5817ee1cfb3609c5ee17400fc, 32 KiB, mask-ROM version 0x00.
+# The launcher gates the loaded ROM against game_get_expected_crc32() in
+# extras.c; keep that value and valid_crcs below in sync with this ROM.
 
 [rom]
 path = "roms/tetris.gb"
 output_dir = "generated"
 runtime_dir = "../gb-recompiled/runtime"
+valid_crcs = [0x63F9407D]
 output_prefix = "Tetris"
 
 [options]
 aggressive_scan = true
 emit_comments = true
+# Runtime-harvested seeds live in the sibling dispatch_misses.toml (Tier-0
+# manifest), auto-ingested as entry-point seeds. Each is a confirmed-real
+# (zero-FP) function entry that fell through to the interpreter on a real
+# playthrough; the analyzer recursive-descends from each.
+# Refresh after a play session with:
+#   gbrecomp --harvest generated/build/interp_fallbacks.log --manifest dispatch_misses.toml
 
 # Manual entry points the analyzer misses.
 # These are addresses that fall back to the interpreter at runtime because
