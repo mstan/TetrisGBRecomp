@@ -72,20 +72,48 @@ fi
 info "1/3  Buscando ROMs de Tetris en roms/"
 mkdir -p roms
 HAVE_V10=0; HAVE_V11=0
+SRC_V10=""; SRC_V11=""
+# Paso A: identificar. Si hay varias copias de la misma versión basta una
+# (se prefiere la que ya tiene el nombre interno).
 for f in roms/*; do
     [ -f "$f" ] || continue
     case "$f" in *.gb|*.GB|*.Gb|*.gB) ;; *) continue ;; esac
     s="$(sha1_of "$f")"
     if [ "$s" = "$V10_SHA1" ]; then
-        [ "$f" = "$V10_ROM" ] || { cp "$f" "$V10_ROM"; echo "    $f -> $V10_ROM"; }
+        if [ -z "$SRC_V10" ] || [ "$f" = "$V10_ROM" ]; then SRC_V10="$f"; fi
         HAVE_V10=1
     elif [ "$s" = "$V11_SHA1" ]; then
-        [ "$f" = "$V11_ROM" ] || { cp "$f" "$V11_ROM"; echo "    $f -> $V11_ROM"; }
+        if [ -z "$SRC_V11" ] || [ "$f" = "$V11_ROM" ]; then SRC_V11="$f"; fi
         HAVE_V11=1
     else
         echo "    (ignorada: $f — SHA-1 $s no es V1.0 ni V1.1)"
     fi
 done
+# Paso B: copiar primero a temporales, para que colocar una versión nunca
+# pise un archivo que sea la fuente de la otra (p. ej. la V1.1 guardada como
+# tetris.gb junto a una V1.0 con otro nombre).
+TMP_V10=""; TMP_V11=""
+if [ -n "$SRC_V10" ] && [ "$SRC_V10" != "$V10_ROM" ]; then
+    TMP_V10="roms/.tmp-v10.$$"; cp "$SRC_V10" "$TMP_V10"; fi
+if [ -n "$SRC_V11" ] && [ "$SRC_V11" != "$V11_ROM" ]; then
+    TMP_V11="roms/.tmp-v11.$$"; cp "$SRC_V11" "$TMP_V11"; fi
+# Paso C: colocar. Si el nombre interno lo ocupa un archivo que no es ni V1.0
+# ni V1.1, se conserva como copia de seguridad en vez de borrarlo.
+place_rom() {   # place_rom <temporal> <destino> <origen>
+    local tmp="$1" dst="$2" src="$3" cur
+    [ -n "$tmp" ] || return 0
+    if [ -f "$dst" ]; then
+        cur="$(sha1_of "$dst")"
+        if [ "$cur" != "$V10_SHA1" ] && [ "$cur" != "$V11_SHA1" ]; then
+            mv "$dst" "$dst.bak-$(date +%Y%m%d-%H%M%S)"
+            warn "$dst no era una ROM de Tetris reconocida: guardada como $dst.bak-…"
+        fi
+    fi
+    mv -f "$tmp" "$dst"
+    echo "    $src -> $dst"
+}
+place_rom "$TMP_V10" "$V10_ROM" "$SRC_V10"
+place_rom "$TMP_V11" "$V11_ROM" "$SRC_V11"
 [ "$HAVE_V10" = 1 ] && echo "    V1.0 encontrada: $V10_ROM"
 [ "$HAVE_V11" = 1 ] && echo "    V1.1 encontrada: $V11_ROM"
 

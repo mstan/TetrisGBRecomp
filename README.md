@@ -243,6 +243,18 @@ cp ~/Downloads/"Tetris (JUE) (V1.1) [!].gb" roms/
 
 También puedes arrastrarla con el Finder: abre la carpeta con `open roms`.
 
+**¿Y si hay varias ROMs en `roms/`?** No pasa nada:
+
+| Qué hay en `roms/` | Qué hace `build.sh` |
+|---|---|
+| La V1.0 y la V1.1 | Compila **las dos**, cada una en su carpeta. `run.sh` abre la V1.1 por defecto; `run.sh v10` abre la otra. |
+| Dos copias de la misma versión | Usa una y compila esa versión una sola vez. |
+| Una ROM de otro juego o versión | La **ignora** con un aviso; no la borra ni la modifica. |
+| Una ROM con el nombre "equivocado" (p. ej. la V1.1 llamada `tetris.gb`) | La reconoce por su contenido y la coloca en su nombre correcto **sin perder ningún archivo**. |
+
+Tus archivos originales se quedan donde están: el script solo crea copias con
+los nombres internos `tetris.gb` y `tetris-v11.gb`.
+
 ### Paso 6 — Recompilar y compilar con `build.sh`
 
 ```bash
