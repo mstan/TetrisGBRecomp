@@ -76,8 +76,25 @@ if [ "$(uname -s)" = "Darwin" ]; then
     fi
     echo "    Homebrew: OK ($(brew --prefix))"
 
-    info "2/5  Instalando dependencias con Homebrew (cmake, ninja, sdl2)"
-    brew install cmake ninja sdl2
+    info "2/5  Instalando dependencias con Homebrew (solo las que falten)"
+    # En Mac Intel, Homebrew puede compilar desde código fuente (sin "bottles"):
+    # CMake tarda 10-30 min. Saltamos lo que ya esté instalado (de Homebrew,
+    # del instalador oficial de CMake, etc.) para no repetir ese trabajo.
+    MISSING=""
+    command -v cmake >/dev/null 2>&1 || MISSING="$MISSING cmake"
+    command -v ninja >/dev/null 2>&1 || MISSING="$MISSING ninja"
+    if ! brew list --versions sdl2 >/dev/null 2>&1 && ! command -v sdl2-config >/dev/null 2>&1; then
+        MISSING="$MISSING sdl2"
+    fi
+    if [ -n "$MISSING" ]; then
+        echo "    Por instalar:$MISSING"
+        echo "    (si Homebrew compila desde código fuente puede tardar; no cierres la Terminal)"
+        # shellcheck disable=SC2086
+        brew install $MISSING
+    else
+        echo "    cmake, ninja y SDL2 ya están instalados: nada que hacer."
+    fi
+    echo "    cmake: $(command -v cmake)   ninja: $(command -v ninja)"
 else
     warn "No estás en macOS ($(uname -s)): se omite Homebrew."
     warn "Asegúrate de tener cmake, ninja, git, un compilador C/C++ y SDL2 (dev)."

@@ -186,13 +186,27 @@ El script muestra el progreso en 5 pasos:
 | Paso | Qué hace |
 |---|---|
 | 1/5 | Comprueba que existen Xcode Command Line Tools y Homebrew. |
-| 2/5 | `brew install cmake ninja sdl2`. |
+| 2/5 | Instala con Homebrew **solo lo que falte** de `cmake`, `ninja` y `sdl2`. |
 | 3/5 | Descarga `gb-recompiled` y `recomp-ui` **en los commits exactos** con los que se validó Tetris, dentro de este repo. |
 | 4/5 | Aplica el parche de OpenGL Core para macOS. |
 | 5/5 | Compila el recompilador `gbrecomp`. |
 
 Al final verás `==> Listo.` Puedes ejecutarlo otra vez sin riesgo: detecta lo
 que ya está hecho y se lo salta.
+
+> ⏳ **Mac Intel: el paso 2/5 puede tardar 15–40 minutos.** Homebrew ya no
+> publica paquetes precompilados para Intel, así que **compila CMake y SDL2 en tu
+> Mac**. Verás una línea como `==> ./bootstrap --prefix=/usr/local/Cellar/cmake/…`
+> que parece congelada: **no lo está**. En el *Monitor de Actividad* verás
+> procesos `clang`/`make` usando CPU. No cierres la Terminal.
+>
+> El aviso *"A newer Command Line Tools release is available"* es solo
+> informativo; no impide la instalación.
+>
+> **Atajo opcional:** instala CMake con el `.dmg` oficial de
+> [cmake.org/download](https://cmake.org/download/) (arrástralo a Aplicaciones y
+> ejecuta `sudo "/Applications/CMake.app/Contents/bin/cmake-gui" --install`).
+> Así `setup.sh` ve que ya existe `cmake` y no lo compila.
 
 > Si responde `permission denied`, da permisos a los scripts con
 > `chmod +x macos/*.sh` y repite.
@@ -338,6 +352,7 @@ ningún riesgo.
 | Síntoma | Causa probable | Solución |
 |---|---|---|
 | `xcrun: error: invalid active developer path` | Faltan las Command Line Tools (a menudo tras actualizar macOS). | `xcode-select --install` |
+| Se queda mucho tiempo en `==> ./bootstrap … cmake` | Homebrew compila CMake desde el código fuente (Mac Intel). | Espera (10–30 min) o usa el atajo del `.dmg` oficial del [paso 4](#paso-4--preparar-todo-con-setupsh-solo-la-primera-vez). |
 | `brew: command not found` | Homebrew no está instalado o la Terminal no se reinició. | Paso 2 y abre una Terminal nueva. |
 | `permission denied: ./macos/setup.sh` | Los scripts perdieron el permiso de ejecución. | `chmod +x macos/*.sh` |
 | `La ROM no es Tetris (World) V1.0` | Tienes la V1.1 u otra variante. | Usa un volcado con el SHA-1 de la [sección 2](#la-rom-correcta). |
