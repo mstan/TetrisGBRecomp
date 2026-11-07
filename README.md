@@ -273,25 +273,32 @@ Al terminar verás `==> Listo: generated/build/Tetris`.
 
 ## 5. Controles
 
-| Game Boy | Teclado del Mac |
-|---|---|
-| Cruceta | Flechas |
-| A | `Z` |
-| B | `X` |
-| Start | `Return` |
-| Select | `Shift` derecho |
+| Game Boy | Teclado del Mac | Alternativa |
+|---|---|---|
+| Cruceta | Flechas | `W` `A` `S` `D` |
+| A | `Z` | `J` |
+| B | `X` | `K` |
+| Start | `Return` | — |
+| Select | `Shift` derecho | `Delete` (⌫) |
 
 | Atajo | Acción |
 |---|---|
 | `F1` | Overlay de recomp-ui: ajustes, vídeo, controles. |
 | `Tab` (mantener) | Turbo / avance rápido. |
-| `Esc` | Menú. |
+| `Esc` | Menú de ajustes (dentro: flechas para moverte, `Return` para elegir, `Esc` para volver). |
+| `F5` / `F8` | Guardar / cargar estado. |
 
 > **MacBook Pro 16" 2019 con Touch Bar:** para pulsar `F1` mantén **`fn`**, o
 > configura *Ajustes del Sistema → Teclado → Touch Bar muestra → Teclas F*.
 
-Los controles se reasignan desde el overlay (`F1`) o editando
-`generated/build/keybinds.ini`. Los mandos compatibles con SDL2 (PS4, PS5, Xbox,
+Los controles se reasignan desde el menú (`Esc`) o desde el overlay (`F1`). Se
+guardan en `generated/build/runtime_prefs.ini`. Para **volver a los controles por
+defecto**, cierra el juego y borra ese archivo:
+
+```bash
+rm generated/build/runtime_prefs.ini
+```
+ Los mandos compatibles con SDL2 (PS4, PS5, Xbox,
 Switch Pro) deberían detectarse automáticamente.
 
 ---
@@ -363,6 +370,8 @@ ningún riesgo.
 | `[shader] compile failed` en la Terminal | Un shader personalizado con sintaxis no traducible. | Quita los `.frag.glsl` personalizados; los incluidos están probados. |
 | El juego se ve algo suavizado en Retina | La ventana del juego no pide resolución HiDPI y macOS la escala. | Es solo estético. Prueba el filtro **sharp** en `F1 → Video`. |
 | Pide la ROM en cada arranque | Se ejecutó desde otra carpeta y no encuentra `rom.cfg`. | Arranca siempre con `./macos/run.sh`. |
+| Las flechas y `Return` no hacen nada (pero `W` `A` `S` `D` sí) | Fallo del motor en la versión fijada: el menú se quedaba esas teclas aunque estuviera cerrado. **Corregido en el parche.** | `git pull`, `./macos/setup.sh` y `CLEAN=1 ./macos/build.sh`. |
+| Cambié los controles y ahora nada responde | Combinaciones guardadas en `runtime_prefs.ini`. | Cierra el juego, `rm generated/build/runtime_prefs.ini` y vuelve a abrirlo. |
 | `F1` no hace nada | La Touch Bar envía teclas de brillo o volumen. | Mantén `fn` mientras pulsas `F1`. |
 
 Para diagnosticar, la Terminal muestra al arrancar una línea como esta:
@@ -386,6 +395,7 @@ tenía una ruta OpenGL 3.3 Core que se activa al no definir `LNG_GLES2`.
 | `runtime/include/gbrt_gl.h` (nuevo) | Elige la cabecera GL: `<OpenGL/gl3.h>` en macOS y `SDL_opengles2.h` en el resto. |
 | `runtime/CMakeLists.txt` | Nueva opción `GBRT_GL_CORE` (**ON por defecto en Apple**, OFF en el resto). Con ella activa se dejan de definir `IMGUI_IMPL_OPENGL_ES2` y `LNG_GLES2`. |
 | `runtime/src/platform_sdl.cpp` | Pide un contexto **OpenGL 3.2 Core forward-compatible** e inicializa ImGui con `#version 150`. |
+| `runtime/src/platform_sdl.cpp` (teclado) | **Corrección de controles** (incorporada de una versión posterior de `gb-recompiled`): con el menú cerrado, las flechas, `Return` y `Space` vuelven a llegar al juego. Antes el menú las capturaba siempre, así que la cruceta y Start no funcionaban con el teclado. |
 | `runtime/src/shader_pipeline.cpp` | Reescribe los shaders `#version 100` a **GLSL 1.50** (`attribute`→`in`, `varying`→`out`/`in`, `texture2D`→`texture`, `gl_FragColor`→`out vec4`). Lo aplica también a los `.frag.glsl` personalizados. Además crea y enlaza un **VAO**, obligatorio en Core. |
 
 Ni el código generado (`generated/*.c`) ni el comportamiento del juego cambian.
@@ -409,6 +419,10 @@ GLES, sin GLSL ES y con VAO obligatorio.
 - ✅ Los tres filtros (`sharp`, `smooth` y `lcd`) compilan y dibujan sin errores GL.
 - ✅ La compilación original con GLES2 (Windows/Linux) sigue compilando.
 - ✅ `setup.sh`, `build.sh` y `run.sh` probados de principio a fin en una copia limpia.
+- ✅ **Teclado:** con una ROM de prueba propia que lee el mando, y pulsando teclas
+  reales con `xdotool`, las 12 teclas por defecto (flechas, Z, X, Return, Shift
+  derecho, W, A, J, K) llegan al juego. Sin la corrección, las flechas y Return
+  fallaban, igual que en el Mac.
 
 Como la ROM de Tetris no se distribuye, las pruebas usaron la ROM libre
 [dmg-acid2](https://github.com/mattcurrie/dmg-acid2) (licencia MIT):

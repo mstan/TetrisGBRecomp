@@ -114,12 +114,21 @@ fetch_at "$ROOT/recomp-ui"     "$RUI_URL" "$RUI_PIN"
 # ---------------------------------------------------------------------------
 info "4/5  Aplicando parche de OpenGL Core para macOS"
 if git -C gb-recompiled apply --reverse --check "$PATCH" >/dev/null 2>&1; then
-    echo "    El parche ya estaba aplicado."
-elif git -C gb-recompiled apply --check "$PATCH" >/dev/null 2>&1; then
+    echo "    El parche ya estaba aplicado (versión actual)."
+else
+    if [ -n "$(git -C gb-recompiled status --porcelain --untracked-files=no)" ] \
+       || [ -f gb-recompiled/runtime/include/gbrt_gl.h ]; then
+        # Hay una versión anterior del parche (o cambios locales): volvemos al
+        # commit fijado limpio antes de aplicar la versión nueva. La carpeta
+        # build/ (ignorada por git) se conserva.
+        echo "    Actualizando una versión anterior del parche..."
+        git -C gb-recompiled checkout -q -- .
+        rm -f gb-recompiled/runtime/include/gbrt_gl.h
+    fi
+    git -C gb-recompiled apply --check "$PATCH" >/dev/null 2>&1 \
+        || die "El parche no aplica sobre gb-recompiled@${GBR_PIN:0:7}."
     git -C gb-recompiled apply "$PATCH"
     echo "    Parche aplicado."
-else
-    die "El parche no aplica sobre gb-recompiled@${GBR_PIN:0:7}. ¿Modificaste esa carpeta? Prueba: git -C gb-recompiled checkout -- . && ./macos/setup.sh"
 fi
 
 # ---------------------------------------------------------------------------
