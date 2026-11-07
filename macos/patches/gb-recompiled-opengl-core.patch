@@ -1,0 +1,275 @@
+diff --git a/runtime/CMakeLists.txt b/runtime/CMakeLists.txt
+index d4268de..9aae12f 100644
+--- a/runtime/CMakeLists.txt
++++ b/runtime/CMakeLists.txt
+@@ -92,6 +92,17 @@ endif()
+ 
+ # Dear ImGui sources (if using SDL2)
+ find_package(SDL2 QUIET)
++# Desktop OpenGL 3.2 Core instead of GLES 2.0. macOS ships no GLES/EGL, so it
++# is ON there by default; -DGBRT_GL_CORE=ON on Linux exercises the same path.
++if(APPLE)
++    option(GBRT_GL_CORE "Render through desktop OpenGL 3.2 Core (GLSL 150)" ON)
++else()
++    option(GBRT_GL_CORE "Render through desktop OpenGL 3.2 Core (GLSL 150)" OFF)
++endif()
++if(GBRT_GL_CORE)
++    target_compile_definitions(gbrt PUBLIC GBRT_GL_CORE=1)
++    message(STATUS "gbrt: GL backend = desktop OpenGL 3.2 Core")
++endif()
+ if(SDL2_FOUND)
+     target_sources(gbrt PRIVATE
+         vendor/imgui/imgui.cpp
+@@ -104,10 +115,12 @@ if(SDL2_FOUND)
+     # imgui_impl_opengl3 is dialect-selected at compile time. Force the
+     # GLES 2.0 path so one binary covers desktop Mesa, Mali, Adreno,
+     # everything we care about.
+-    set_source_files_properties(
+-        vendor/imgui/backends/imgui_impl_opengl3.cpp
+-        PROPERTIES COMPILE_DEFINITIONS "IMGUI_IMPL_OPENGL_ES2"
+-    )
++    if(NOT GBRT_GL_CORE)
++        set_source_files_properties(
++            vendor/imgui/backends/imgui_impl_opengl3.cpp
++            PROPERTIES COMPILE_DEFINITIONS "IMGUI_IMPL_OPENGL_ES2"
++        )
++    endif()
+     target_include_directories(gbrt PUBLIC
+         ${CMAKE_CURRENT_SOURCE_DIR}/vendor/imgui
+     )
+@@ -197,7 +210,12 @@ if(GBRECOMP_RECOMP_UI AND SDL2_FOUND AND EXISTS "${RECOMP_UI_ROOT}/src/recomp_la
+     # LNG_GLES2: the shared ImGui opengl3 backend is compiled for GLES 2 (ANGLE),
+     # so the launcher must create a matching GLES context (not desktop GL core).
+     target_compile_definitions(gbrt PRIVATE
+-        RECOMP_LAUNCHER SDL_MAIN_HANDLED RECOMP_UI_HOST_STB_WRITE LNG_GLES2)
++        RECOMP_LAUNCHER SDL_MAIN_HANDLED RECOMP_UI_HOST_STB_WRITE)
++    # GBRT_GL_CORE (macOS): the launcher takes recomp-ui's desktop GL 3.3
++    # Core path instead, matching the non-ES2 ImGui backend above.
++    if(NOT GBRT_GL_CORE)
++        target_compile_definitions(gbrt PRIVATE LNG_GLES2)
++    endif()
+     message(STATUS "recomp-ui launcher: ON (${RECOMP_UI_ROOT})")
+ elseif(GBRECOMP_RECOMP_UI)
+     message(STATUS "recomp-ui launcher: OFF (not found at ${RECOMP_UI_ROOT} or no SDL2)")
+diff --git a/runtime/include/gbrt_gl.h b/runtime/include/gbrt_gl.h
+new file mode 100644
+index 0000000..f114985
+--- /dev/null
++++ b/runtime/include/gbrt_gl.h
+@@ -0,0 +1,32 @@
++/*
++ * gbrt_gl.h — one place that picks the GL header for the runtime.
++ *
++ * Default: GLES 2.0 (SDL_opengles2.h) — Windows/ANGLE, Linux Mesa, Android.
++ * GBRT_GL_CORE: desktop OpenGL 3.2 Core + GLSL 150. macOS has no GLES at
++ * all (no system EGL), so this is ON by default there; it can also be forced
++ * on Linux (-DGBRT_GL_CORE=ON) to exercise the same path on Mesa.
++ */
++#ifndef GBRT_GL_H
++#define GBRT_GL_H
++
++#if defined(__APPLE__) && !defined(GBRT_GL_CORE)
++#define GBRT_GL_CORE 1
++#endif
++
++#if defined(GBRT_GL_CORE)
++#  if defined(__APPLE__)
++#    ifndef GL_SILENCE_DEPRECATION
++#      define GL_SILENCE_DEPRECATION 1
++#    endif
++#    include <OpenGL/gl3.h>
++#  else
++#    ifndef GL_GLEXT_PROTOTYPES
++#      define GL_GLEXT_PROTOTYPES 1
++#    endif
++#    include <GL/glcorearb.h>
++#  endif
++#else
++#  include <SDL_opengles2.h>
++#endif
++
++#endif /* GBRT_GL_H */
+diff --git a/runtime/src/platform_sdl.cpp b/runtime/src/platform_sdl.cpp
+index 465ef72..5a705c3 100644
+--- a/runtime/src/platform_sdl.cpp
++++ b/runtime/src/platform_sdl.cpp
+@@ -32,7 +32,7 @@ extern "C" void gb_debug_server_set_context(GBContext *ctx);
+ 
+ #ifdef GB_HAS_SDL2
+ #include <SDL.h>
+-#include <SDL_opengles2.h>
++#include "gbrt_gl.h"
+ #include <algorithm>
+ #include <atomic>
+ #include <cctype>
+@@ -42,7 +42,9 @@ extern "C" void gb_debug_server_set_context(GBContext *ctx);
+ #include <vector>
+ #include "imgui.h"
+ #include "backends/imgui_impl_sdl2.h"
++#if !defined(GBRT_GL_CORE)
+ #define IMGUI_IMPL_OPENGL_ES2
++#endif
+ #include "backends/imgui_impl_opengl3.h"
+ 
+ #include "shader_pipeline.h"
+@@ -4809,9 +4811,18 @@ bool gb_platform_init(int scale) {
+     /* Request a GLES 2.0 context — same code path on desktop Mesa
+      * (which advertises a compatible profile) and embedded Mali / Adreno
+      * GPUs. SDL_WINDOW_OPENGL must be set BEFORE SDL_CreateWindow. */
++#if defined(GBRT_GL_CORE)
++    /* macOS: no GLES/EGL — use desktop OpenGL 3.2 Core (forward-compatible),
++     * the profile Apple supports; shaders are rewritten to GLSL 150. */
++    SDL_GL_SetAttribute(SDL_GL_CONTEXT_FLAGS, SDL_GL_CONTEXT_FORWARD_COMPATIBLE_FLAG);
++    SDL_GL_SetAttribute(SDL_GL_CONTEXT_PROFILE_MASK, SDL_GL_CONTEXT_PROFILE_CORE);
++    SDL_GL_SetAttribute(SDL_GL_CONTEXT_MAJOR_VERSION, 3);
++    SDL_GL_SetAttribute(SDL_GL_CONTEXT_MINOR_VERSION, 2);
++#else
+     SDL_GL_SetAttribute(SDL_GL_CONTEXT_PROFILE_MASK, SDL_GL_CONTEXT_PROFILE_ES);
+     SDL_GL_SetAttribute(SDL_GL_CONTEXT_MAJOR_VERSION, 2);
+     SDL_GL_SetAttribute(SDL_GL_CONTEXT_MINOR_VERSION, 0);
++#endif
+     SDL_GL_SetAttribute(SDL_GL_DOUBLEBUFFER, 1);
+     SDL_GL_SetAttribute(SDL_GL_DEPTH_SIZE, 0);
+ 
+@@ -4885,7 +4896,11 @@ bool gb_platform_init(int scale) {
+ 
+     /* GLES 2 backend — `#version 100` GLSL, no VAOs, runs anywhere. */
+     ImGui_ImplSDL2_InitForOpenGL(g_window, g_gl_context);
++#if defined(GBRT_GL_CORE)
++    ImGui_ImplOpenGL3_Init("#version 150");
++#else
+     ImGui_ImplOpenGL3_Init("#version 100");
++#endif
+ 
+ #ifdef RECOMP_LAUNCHER
+     create_runtime_ui();
+@@ -5022,14 +5037,21 @@ static bool handle_shared_runtime_ui_event(const SDL_Event* event) {
+             default: mapped = false; break;
+         }
+         if (mapped) {
+-            if (!recomp_runtime_ui_is_open(g_runtime_ui) &&
+-                input == RECOMP_RUNTIME_UI_INPUT_BACK && pressed && !repeat) {
+-                g_show_menu = false;
+-                recomp_runtime_ui_open(g_runtime_ui);
+-            } else if (recomp_runtime_ui_is_open(g_runtime_ui)) {
++            if (recomp_runtime_ui_is_open(g_runtime_ui)) {
+                 recomp_runtime_ui_handle_input(g_runtime_ui, input, pressed, repeat);
++                return true;
+             }
+-            return true;
++            if (input == RECOMP_RUNTIME_UI_INPUT_BACK) {
++                if (pressed && !repeat) {
++                    g_show_menu = false;
++                    recomp_runtime_ui_open(g_runtime_ui);
++                }
++                return true;
++            }
++            /* Overlay closed: Enter/Space/arrows belong to the game (Start and
++             * the d-pad on the default bindings). Swallowing them here made
++             * every GB title unplayable from the keyboard. Fall through.
++             * (Backport of the upstream gb-recompiled fix.) */
+         }
+         return recomp_runtime_ui_is_open(g_runtime_ui) != 0;
+     }
+diff --git a/runtime/src/shader_pipeline.cpp b/runtime/src/shader_pipeline.cpp
+index 3390e22..59f342f 100644
+--- a/runtime/src/shader_pipeline.cpp
++++ b/runtime/src/shader_pipeline.cpp
+@@ -9,7 +9,7 @@
+ #include "shader_pipeline.h"
+ 
+ #include <SDL.h>
+-#include <SDL_opengles2.h>
++#include "gbrt_gl.h"
+ 
+ #include <stdio.h>
+ #include <stdlib.h>
+@@ -124,7 +124,40 @@ bool log_link(GLuint prog, const char* label) {
+     return false;
+ }
+ 
++#if defined(GBRT_GL_CORE)
++/* Desktop GL Core (macOS) rejects GLSL ES 1.00. Rewrite the `#version 100`
++ * sources (embedded and user .frag.glsl overrides alike) to GLSL 1.50:
++ * drop the original #version line and map attribute/varying/texture2D/
++ * gl_FragColor onto their 1.50 spellings. `precision` is legal in 1.50. */
++std::string to_glsl150(const char* src, bool fragment) {
++    std::string body(src ? src : "");
++    size_t v = body.find("#version");
++    if (v != std::string::npos) {
++        size_t eol = body.find('\n', v);
++        body.replace(v, (eol == std::string::npos ? body.size() : eol) - v, "");
++    }
++    std::string out = "#version 150\n";
++    if (fragment) {
++        out += "#define varying in\n"
++               "#define texture2D texture\n"
++               "out vec4 gbrt_FragColor;\n"
++               "#define gl_FragColor gbrt_FragColor\n";
++    } else {
++        out += "#define attribute in\n"
++               "#define varying out\n";
++    }
++    out += "#line 1\n";
++    return out + body;
++}
++#endif
++
+ GLuint compile_program(const char* vs_src, const char* fs_src, const char* label) {
++#if defined(GBRT_GL_CORE)
++    const std::string vs_core = to_glsl150(vs_src, false);
++    const std::string fs_core = to_glsl150(fs_src, true);
++    vs_src = vs_core.c_str();
++    fs_src = fs_core.c_str();
++#endif
+     GLuint vs = glCreateShader(GL_VERTEX_SHADER);
+     glShaderSource(vs, 1, &vs_src, NULL);
+     glCompileShader(vs);
+@@ -184,6 +217,7 @@ struct GBShaderPipeline {
+     std::vector<ShaderEntry> shaders;
+     int    active = -1;
+     GLuint quad_vbo = 0;
++    GLuint quad_vao = 0;   /* GBRT_GL_CORE only: Core profile needs a bound VAO */
+     std::string override_dir;
+ };
+ 
+@@ -193,6 +227,9 @@ GBShaderPipeline* gb_shader_pipeline_create(void) {
+     p->shaders.push_back({"smooth", FS_SMOOTH, 0, -1, -1, -1, -1, -1, -1, -1, false, false});
+     p->shaders.push_back({"lcd",    FS_LCD,    0, -1, -1, -1, -1, -1, -1, -1, false, false});
+     glGenBuffers(1, &p->quad_vbo);
++#if defined(GBRT_GL_CORE)
++    glGenVertexArrays(1, &p->quad_vao);
++#endif
+     p->active = 0;
+     return p;
+ }
+@@ -203,6 +240,9 @@ void gb_shader_pipeline_destroy(GBShaderPipeline* p) {
+         if (e.program) glDeleteProgram(e.program);
+     }
+     if (p->quad_vbo) glDeleteBuffers(1, &p->quad_vbo);
++#if defined(GBRT_GL_CORE)
++    if (p->quad_vao) glDeleteVertexArrays(1, &p->quad_vao);
++#endif
+     delete p;
+ }
+ 
+@@ -277,6 +317,11 @@ void gb_shader_pipeline_draw(GBShaderPipeline* p,
+         x0, y1, 0.0f, 1.0f,
+     };
+ 
++#if defined(GBRT_GL_CORE)
++    GLint prev_vao = 0;
++    glGetIntegerv(GL_VERTEX_ARRAY_BINDING, &prev_vao);
++    glBindVertexArray(p->quad_vao);
++#endif
+     glBindBuffer(GL_ARRAY_BUFFER, p->quad_vbo);
+     glBufferData(GL_ARRAY_BUFFER, sizeof(verts), verts, GL_STREAM_DRAW);
+ 
+@@ -309,4 +354,7 @@ void gb_shader_pipeline_draw(GBShaderPipeline* p,
+ 
+     if (e.a_pos >= 0) glDisableVertexAttribArray(e.a_pos);
+     if (e.a_uv  >= 0) glDisableVertexAttribArray(e.a_uv);
++#if defined(GBRT_GL_CORE)
++    glBindVertexArray((GLuint)prev_vao);
++#endif
+ }

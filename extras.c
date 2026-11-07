@@ -10,10 +10,22 @@
 #include <stdint.h>
 #include "game_extras.h"
 
-/* Tetris — CRC32 of roms/tetris.gb, the exact ROM this project is recompiled
- * from (the launcher gates the loaded ROM against this). */
+/* Two revisions are supported, each recompiled into its own output dir
+ * (game_build.cmake defines TETRIS_V11 for generated-v11/). The launcher gates
+ * the loaded ROM against the CRC32 of the exact image this binary came from:
+ *   V1.0  Tetris (World)      roms/tetris.gb      CRC32 0x63F9407D
+ *   V1.1  Tetris (JUE) V1.1   roms/tetris-v11.gb  CRC32 0x46DF91AD
+ *         (A-TYPE music = Korobeiniki) */
+#if defined(TETRIS_V11)
+#  define TETRIS_ROM_CRC32 0x46DF91ADu
+#  define TETRIS_TITLE     "Tetris (V1.1)"
+#else
+#  define TETRIS_ROM_CRC32 0x63F9407Du
+#  define TETRIS_TITLE     "Tetris (V1.0)"
+#endif
+
 uint32_t game_get_expected_crc32(void) {
-    return 0x63F9407Du;
+    return TETRIS_ROM_CRC32;
 }
 
 /* Single-CRC game; defer to game_get_expected_crc32. */
@@ -27,4 +39,4 @@ const uint32_t *game_get_valid_crcs(int *out_count) {
 const char *game_get_platform(void) { return "gb"; }
 
 /* Launcher title (defaults to "GB Recompiled" otherwise). */
-const char *game_get_name(void) { return "Tetris"; }
+const char *game_get_name(void) { return TETRIS_TITLE; }
