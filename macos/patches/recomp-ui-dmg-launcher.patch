@@ -1,0 +1,231 @@
+diff --git a/src/common/backends/imgui/launcher_imgui.cpp b/src/common/backends/imgui/launcher_imgui.cpp
+index b5c2a8a..223104d 100644
+--- a/src/common/backends/imgui/launcher_imgui.cpp
++++ b/src/common/backends/imgui/launcher_imgui.cpp
+@@ -395,11 +395,22 @@ void eyebrow_tracked(const char* s) {
+ }
+ 
+ // Draw a texture fit inside a logical box, preserving aspect.
+-void image_fit(const LauncherTexture& t, float box_w, float box_h) {
++void image_fit(const LauncherTexture& t, float box_w, float box_h, ImU32 tint = IM_COL32_WHITE) {
+     if (!t.id || t.w <= 0 || t.h <= 0) { ImGui::Dummy(ImVec2(px(box_w), px(box_h))); return; }
+     float bw = px(box_w), bh = px(box_h);
+     float s = (bw / t.w < bh / t.h) ? bw / (float)t.w : bh / (float)t.h;
+-    ImGui::Image(tid(t), ImVec2(t.w * s, t.h * s));
++    if (tint == IM_COL32_WHITE) { ImGui::Image(tid(t), ImVec2(t.w * s, t.h * s)); return; }
++    const ImVec2 p0 = ImGui::GetCursorScreenPos();
++    const ImVec2 sz(t.w * s, t.h * s);
++    ImGui::GetWindowDrawList()->AddImage(tid(t), p0, ImVec2(p0.x + sz.x, p0.y + sz.y),
++                                         ImVec2(0, 0), ImVec2(1, 1), tint);
++    ImGui::Dummy(sz);
++}
++
++// A light theme (the DMG grey case) needs dark ink where the dark themes use
++// white artwork (the header brand mark).
++bool theme_is_light(const LauncherTheme& th) {
++    return 0.299f * th.background.r + 0.587f * th.background.g + 0.114f * th.background.b > 0.5f;
+ }
+ 
+ // Like image_fit, but horizontally centers the FITTED image within avail_w.
+@@ -1500,7 +1511,11 @@ void panel_controller_draw(LauncherModel* m, const LauncherTheme* th) {
+ // (SAVES only when the game has SRAM, folded into the GAME card — see
+ // draw_save_row). A different system's profile simply contributes a
+ // different panel list.
++bool single_page_dashboard(const LauncherModel* m);                                  // fwd
++void draw_single_page_dashboard(LauncherModel* m, const LauncherTheme& th, int logical_w); // fwd
++
+ void draw_dashboard(LauncherModel* m, const LauncherTheme& th, int logical_w) {
++    if (single_page_dashboard(m)) { draw_single_page_dashboard(m, th, logical_w); return; }
+     const SystemProfile* prof = (const SystemProfile*)m->profile;
+     const LauncherPanel* game_p = find_composed(prof->panels_dashboard, "game", m);
+     const LauncherPanel* ctrl_p = find_composed(prof->panels_dashboard, "controller", m);
+@@ -2373,6 +2388,122 @@ void panel_controller_config_draw(LauncherModel* m, const LauncherTheme* th) {
+     draw_controller_config_view(m, *th);
+ }
+ 
++// ---- Single-page dashboard (Game Boy) -----------------------------------------
++// The Game Boy has one player, an 8-button pad and a short settings list, so
++// instead of hiding them behind "Configure" and "Settings" sub-pages everything
++// lives on the dashboard: GAME card on the left; on the right the CONTROLS card
++// (input source + click-to-rebind key chips) above the DISPLAY and AUDIO cards.
++bool single_page_dashboard(const LauncherModel* m) {
++    const SystemProfile* prof = (const SystemProfile*)m->profile;
++    return prof && prof->id &&
++           (strcmp(prof->id, "gb") == 0 || strcmp(prof->id, "gbc") == 0);
++}
++
++void draw_inline_controls(LauncherModel* m, const LauncherTheme& th) {
++    const int p = 0;
++    m->cfg_player = p;   // capture + bind writes address this player
++    const SystemProfile* prof = (const SystemProfile*)m->profile;
++    const ControllerSpec& spec = prof->controller;
++    if (!begin_panel("ctl_inline", 0)) { end_panel(); return; }
++    eyebrow("CONTROLS");
++
++    if (!m->lock_device) {
++        ImGui::AlignTextToFramePadding();
++        ImGui::TextColored(col(th.text_muted), "Input");
++        ImGui::SameLine(px(80.0f));
++        ImGui::SetNextItemWidth(ImGui::GetContentRegionAvail().x);
++        if (ImGui::BeginCombo("##src_inline", launcher_model_player_src_label(m, p))) {
++            draw_source_selectables(m, p);
++            ImGui::EndCombo();
++        }
++        ImGui::Dummy(ImVec2(0, px(4)));
++    }
++
++    if (!m->hide_rebind) {
++        const int nbtn = launcher_model_active_button_count(m, p);
++        float label_w = px(64.0f);
++        for (int b = 0; b < nbtn; ++b) {
++            float w = ImGui::CalcTextSize(spec.buttons[b].label).x + px(14.0f);
++            if (w > label_w) label_w = w;
++        }
++        // Two cells per row (label + key chip), placed explicitly so both
++        // columns line up regardless of label length.
++        const float gap    = px(th.spacing_md);
++        const float row0_x = ImGui::GetCursorPosX();
++        const float cell_w = (ImGui::GetContentRegionAvail().x - gap) * 0.5f;
++        const float chip_w = cell_w - label_w;
++        for (int b = 0; b < nbtn; ++b) {
++            const int c = b & 1;
++            const float x = row0_x + c * (cell_w + gap);
++            if (c) ImGui::SameLine(x); else ImGui::SetCursorPosX(x);
++            ImGui::PushID(b);
++            ImGui::AlignTextToFramePadding();
++            ImGui::TextColored(col(th.text_muted), "%s", spec.buttons[b].label);
++            ImGui::SameLine(x + label_w);
++            const bool cap = m->capturing && !m->capture_pad && m->capture_btn == b;
++            if (cap) {
++                ImGui::PushStyleColor(ImGuiCol_Button,        col(th.accent));
++                ImGui::PushStyleColor(ImGuiCol_ButtonHovered, col(th.accent));
++                ImGui::PushStyleColor(ImGuiCol_ButtonActive,  col(th.accent_dim));
++                ImGui::PushStyleColor(ImGuiCol_Text,          col(th.accent_text));
++            }
++            if (ImGui::Button(cap ? "Press a key..." : m->binds[p][b], ImVec2(chip_w, 0)))
++                launcher_model_begin_capture(m, b);
++            if (cap) ImGui::PopStyleColor(4);
++            ImGui::PopID();
++        }
++        ImGui::Dummy(ImVec2(0, px(4)));
++        if (ImGui::Button("Reset to defaults")) launcher_binds_reset_player(m, p + 1);
++        ImGui::SameLine();
++        ImGui::AlignTextToFramePadding();
++        if (m->capturing) ImGui::TextColored(col(th.warn), "Listening... (Esc cancels)");
++        else              ImGui::TextColored(col(th.text_muted), "Click a key to change it.");
++    }
++    end_panel();
++}
++
++void draw_single_page_dashboard(LauncherModel* m, const LauncherTheme& th, int logical_w) {
++    const SystemProfile* prof = (const SystemProfile*)m->profile;
++    const LauncherPanel* game_p  = find_composed(prof->panels_dashboard, "game", m);
++    const LauncherPanel* video_p = find_composed(prof->panels_settings, "video", m);
++    const LauncherPanel* audio_p = find_composed(prof->panels_settings, "audio", m);
++    const float gap = px(th.spacing_md);
++
++    if (logical_w < 820) {   // narrow window: one scrolling column
++        if (game_p) { g_game_fill_h = false; game_p->draw(m, &th); ImGui::Spacing(); }
++        draw_inline_controls(m, th);
++        if (video_p) { ImGui::Spacing(); begin_container("sp_v", ImVec2(0, px(250))); video_p->draw(m, &th); end_container(); }
++        if (audio_p) { ImGui::Spacing(); begin_container("sp_a", ImVec2(0, px(200))); audio_p->draw(m, &th); end_container(); }
++        return;
++    }
++
++    if (game_p) {
++        g_game_fill_h = true;
++        begin_container("sp_l", ImVec2(px(340), 0));
++        game_p->draw(m, &th);
++        end_container();
++        ImGui::SameLine(0, gap);
++    }
++    begin_container("sp_r", ImVec2(0, 0), ImGuiChildFlags_None, ImGuiWindowFlags_NoScrollbar);
++        draw_inline_controls(m, th);
++        ImGui::Dummy(ImVec2(0, gap - ImGui::GetStyle().ItemSpacing.y));
++        const ImVec2 avail = ImGui::GetContentRegionAvail();
++        const float rest_h = avail.y > px(160) ? avail.y : px(160);
++        const float video_w = (avail.x - gap) * 0.58f;
++        if (video_p) {
++            begin_container("sp_v", ImVec2((video_p && audio_p) ? video_w : 0, rest_h));
++            video_p->draw(m, &th);
++            end_container();
++        }
++        if (video_p && audio_p) ImGui::SameLine(0, gap);
++        if (audio_p) {
++            begin_container("sp_a", ImVec2(0, rest_h));
++            audio_p->draw(m, &th);
++            end_container();
++        }
++    end_container();
++}
++
+ // The CONTROLLER view composes whichever panel(s) this game's SystemProfile
+ // lists in panels_controller — today always the single "controller_config"
+ // page (source+deadzone card, then the bindings grid card), matching the
+@@ -3596,7 +3727,9 @@ void draw_ui(LauncherModel* m, const LauncherTheme& th, int logical_w, int logic
+             fit_h = g_brand.h * s;
+         }
+         ImGui::SetCursorPosY(hdr_top + (block_h - fit_h) * 0.5f);
+-        image_fit(g_brand, brand_w, brand_h); ImGui::SameLine(0, px(12));
++        image_fit(g_brand, brand_w, brand_h,
++                  theme_is_light(th) ? imcol(th.accent2) : IM_COL32_WHITE);
++        ImGui::SameLine(0, px(12));
+         ImGui::SetCursorPosY(hdr_top);
+     }
+     ImGui::BeginGroup();
+@@ -3630,7 +3763,9 @@ void draw_ui(LauncherModel* m, const LauncherTheme& th, int logical_w, int logic
+             }
+         }
+         ImGui::SetCursorPos(ImVec2(right - w, nav_y));
+-        if (ImGui::Button(label, ImVec2(w, px(34)))) {
++        const bool hide_nav = single_page_dashboard(m) && m->view == LNG_VIEW_DASHBOARD;
++        if (hide_nav) ImGui::Dummy(ImVec2(w, px(34)));
++        else if (ImGui::Button(label, ImVec2(w, px(34)))) {
+             launcher_model_set_view(m, m->view == LNG_VIEW_DASHBOARD
+                                         ? LNG_VIEW_SETTINGS : LNG_VIEW_DASHBOARD);
+         }
+diff --git a/src/common/launcher_theme.h b/src/common/launcher_theme.h
+index dad5501..25fc68c 100644
+--- a/src/common/launcher_theme.h
++++ b/src/common/launcher_theme.h
+@@ -215,20 +215,27 @@ static inline LauncherTheme launcher_theme_genesis(void) {
+ // one accent (the #9bbc0f/#306230 dot-matrix palette). Backlit-launcher chrome,
+ // so NO CRT scanlines — the DMG panel was a passive reflective LCD, not a tube.
+ static inline LauncherTheme launcher_theme_gb(void) {
++    // Classic DMG-01 handheld: the light-grey case as the ground, the four-shade
++    // pea-green LCD for the primary action, the navy "GAME BOY" wordmark ink
++    // for headings and the magenta A/B buttons for focus. A light theme: dark
++    // ink on grey, scanlines OFF (reflective LCD, not a CRT).
+     LauncherTheme t = launcher_theme_default();   // inherit spacing/type/dims
+-    t.background      = lng_rgba(0.043f, 0.055f, 0.031f, 1.0f); // #0B0E08 olive-black
+-    t.background2     = lng_rgba(0.071f, 0.090f, 0.051f, 1.0f); // #12170D lifted center
+-    t.panel           = lng_rgba(0.082f, 0.102f, 0.059f, 1.0f); // #151A0F card
+-    t.panel_hovered   = lng_rgba(0.122f, 0.153f, 0.086f, 1.0f); // #1F2716
+-    t.control         = lng_rgba(0.098f, 0.125f, 0.071f, 1.0f); // #192012 button
+-    t.control_hovered = lng_rgba(0.141f, 0.176f, 0.098f, 1.0f); // #242D19
+-    t.border          = lng_rgba(0.180f, 0.220f, 0.125f, 1.0f); // #2E3820 hairline
+-    t.accent          = lng_rgba(0.545f, 0.675f, 0.059f, 1.0f); // #8BAC0F GB screen green
+-    t.accent_dim      = lng_rgba(0.376f, 0.510f, 0.098f, 1.0f); // #608219 pressed/gradient
+-    t.accent_text     = lng_rgba(0.043f, 0.055f, 0.031f, 1.0f); // dark ink on the bright green
+-    t.text            = lng_rgba(0.914f, 0.929f, 0.878f, 1.0f); // #E9EDE0 warm off-white
+-    t.text_muted      = lng_rgba(0.545f, 0.573f, 0.475f, 1.0f); // #8B9279
+-    /* good/warn keep their semantic colors; focus stays cyan (reads on olive). */
++    t.background      = lng_rgba(0.725f, 0.729f, 0.702f, 1.0f); // #B9BAB3 case (shadow)
++    t.background2     = lng_rgba(0.804f, 0.808f, 0.780f, 1.0f); // #CDCEC7 case (lit)
++    t.panel           = lng_rgba(0.851f, 0.855f, 0.827f, 1.0f); // #D9DAD3 card
++    t.panel_hovered   = lng_rgba(0.886f, 0.890f, 0.863f, 1.0f); // #E2E3DC
++    t.control         = lng_rgba(0.765f, 0.769f, 0.741f, 1.0f); // #C3C4BD button (darker than card)
++    t.control_hovered = lng_rgba(0.702f, 0.706f, 0.678f, 1.0f); // #B3B4AD
++    t.border          = lng_rgba(0.561f, 0.565f, 0.541f, 1.0f); // #8F908A hairline
++    t.accent          = lng_rgba(0.188f, 0.384f, 0.188f, 1.0f); // #306230 LCD dark green
++    t.accent_dim      = lng_rgba(0.059f, 0.220f, 0.059f, 1.0f); // #0F380F LCD darkest
++    t.accent_text     = lng_rgba(0.608f, 0.737f, 0.059f, 1.0f); // #9BBC0F LCD lightest
++    t.accent2         = lng_rgba(0.169f, 0.184f, 0.490f, 1.0f); // #2B2F7D wordmark navy
++    t.text            = lng_rgba(0.133f, 0.149f, 0.122f, 1.0f); // #22261F ink
++    t.text_muted      = lng_rgba(0.353f, 0.369f, 0.341f, 1.0f); // #5A5E57
++    t.good            = lng_rgba(0.188f, 0.384f, 0.188f, 1.0f); // #306230 LCD green
++    t.warn            = lng_rgba(0.608f, 0.353f, 0.000f, 1.0f); // #9B5A00 amber ink
++    t.focus_ring      = lng_rgba(0.608f, 0.114f, 0.302f, 1.0f); // #9B1D4D A/B buttons
+     t.scanlines       = 0;                       // reflective LCD, not CRT: flat
+     return t;
+ }

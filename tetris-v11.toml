@@ -1,0 +1,52 @@
+# Tetris (JUE) V1.1 - Game Boy Static Recompiler Configuration
+# Used with: gbrecomp --config tetris-v11.toml   (o ./macos/build.sh v11)
+#
+# ROM identity: roms/tetris-v11.gb — CRC32 0x46DF91AD,
+# SHA-1 74591cc9501af93873f9a5d3eb12da12c0723bbc, 32 KiB, mask-ROM version 0x01.
+# In this revision the A-TYPE music is Korobeiniki.
+#
+# The V1.1 code layout differs from V1.0 (early bank-0 code sits 0x7F bytes
+# lower; game-state handlers move by varying amounts), so every address below
+# was read from the V1.1 image itself, not translated from tetris.toml.
+# extras.c gates the ROM by CRC (TETRIS_V11, set by game_build.cmake).
+
+[rom]
+path = "roms/tetris-v11.gb"
+output_dir = "generated-v11"
+runtime_dir = "../gb-recompiled/runtime"
+valid_crcs = [0x46DF91AD]
+output_prefix = "Tetris"
+
+[options]
+# Explicit: otherwise gbrecomp auto-ingests the sibling dispatch_misses.toml,
+# which holds V1.0 addresses.
+dispatch_misses = "dispatch_misses-v11.toml"
+aggressive_scan = true
+emit_comments = true
+# Refresh after a play session with:  ./macos/harvest.sh v11
+
+# Manual entry points (same roles as in tetris.toml, V1.1 addresses).
+[entry_points]
+bank_0 = [
+    0x006B,   # Serial interrupt (vector 0x58 -> 0x005B -> CALL here): RST 0x28 jump-table dispatcher
+    0x01D8,   # VBlank handler: return from CALL 0xFFB6 (OAM DMA in HRAM) at 0x01D5
+    0x02A6,   # Main loop init: return from CALL 0x7FF3 (bank 1 trampoline) at 0x02A3
+    0x02F8,   # Game state dispatcher: ldh a,($E1) / RST 0x28, table at 0x02FB
+    0x0825,   # Game state 24 (table entry 24)
+    0x08E4,   # Game state 25: serial handshake init (ld a,$08 / ldh (IE),a)
+    0x148C,   # Game state 9: immediate RET (no-op state)
+    0x1A07,   # Game state 10: demo/attract mode init
+]
+bank_1 = [
+    0x7FF0,   # Trampoline: JP 0x64D3 (input routine)
+    0x7FF3,   # Trampoline: JP 0x69A5 (init routine)
+]
+
+# HRAM overlay: OAM DMA routine copied to HRAM at init.
+# The init code at 0x0293 (ld c,$B6 / ld b,$0C / ld hl,$2A7F) copies 12 bytes
+# from ROM 0x2A7F to HRAM 0xFFB6. Auto-detect maps to 0xFF80 (wrong).
+[[hram_overlay]]
+ram_addr = 0xFFB6
+source_bank = 0
+source_addr = 0x2A7F
+size = 12

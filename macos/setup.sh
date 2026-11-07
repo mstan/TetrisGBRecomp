@@ -112,24 +112,32 @@ fetch_at "$ROOT/gb-recompiled" "$GBR_URL" "$GBR_PIN"
 fetch_at "$ROOT/recomp-ui"     "$RUI_URL" "$RUI_PIN"
 
 # ---------------------------------------------------------------------------
-info "4/5  Aplicando parche de OpenGL Core para macOS"
-if git -C gb-recompiled apply --reverse --check "$PATCH" >/dev/null 2>&1; then
-    echo "    El parche ya estaba aplicado (versión actual)."
-else
-    if [ -n "$(git -C gb-recompiled status --porcelain --untracked-files=no)" ] \
-       || [ -f gb-recompiled/runtime/include/gbrt_gl.h ]; then
-        # Hay una versión anterior del parche (o cambios locales): volvemos al
-        # commit fijado limpio antes de aplicar la versión nueva. La carpeta
-        # build/ (ignorada por git) se conserva.
-        echo "    Actualizando una versión anterior del parche..."
-        git -C gb-recompiled checkout -q -- .
-        rm -f gb-recompiled/runtime/include/gbrt_gl.h
+info "4/5  Aplicando parches (OpenGL Core + controles en gb-recompiled; launcher DMG en recomp-ui)"
+# apply_patch <repo> <patch> [archivo nuevo que crea el parche...]
+# Idempotente: si ya está aplicado no hace nada; si hay una versión anterior
+# (o cambios locales) vuelve al commit fijado limpio y aplica la actual.
+# Las carpetas ignoradas por git (build/) se conservan.
+apply_patch() {
+    local repo="$1" patch="$2"; shift 2
+    if git -C "$repo" apply --reverse --check "$patch" >/dev/null 2>&1; then
+        echo "    $(basename "$patch"): ya aplicado (versión actual)."
+        return
     fi
-    git -C gb-recompiled apply --check "$PATCH" >/dev/null 2>&1 \
-        || die "El parche no aplica sobre gb-recompiled@${GBR_PIN:0:7}."
-    git -C gb-recompiled apply "$PATCH"
-    echo "    Parche aplicado."
-fi
+    local dirty=0 f
+    [ -n "$(git -C "$repo" status --porcelain --untracked-files=no)" ] && dirty=1
+    for f in "$@"; do [ -f "$repo/$f" ] && dirty=1; done
+    if [ "$dirty" = 1 ]; then
+        echo "    $(basename "$patch"): actualizando una versión anterior..."
+        git -C "$repo" checkout -q -- .
+        for f in "$@"; do rm -f "$repo/$f"; done
+    fi
+    git -C "$repo" apply --check "$patch" >/dev/null 2>&1 \
+        || die "$(basename "$patch") no aplica sobre $repo."
+    git -C "$repo" apply "$patch"
+    echo "    $(basename "$patch"): aplicado."
+}
+apply_patch gb-recompiled "$PATCH" runtime/include/gbrt_gl.h
+apply_patch recomp-ui "$ROOT/macos/patches/recomp-ui-dmg-launcher.patch"
 
 # ---------------------------------------------------------------------------
 info "5/5  Compilando el recompilador (gbrecomp)"
@@ -137,5 +145,5 @@ cmake -G Ninja -S gb-recompiled -B gb-recompiled/build -DCMAKE_BUILD_TYPE=Releas
 ninja -C gb-recompiled/build gbrecomp
 
 info "Listo. Siguiente paso:"
-echo "    1) Copia tu ROM a:  roms/tetris.gb"
+echo "    1) Copia tu ROM (V1.1 y/o V1.0, con cualquier nombre) a la carpeta roms/"
 echo "    2) Ejecuta:         ./macos/build.sh"

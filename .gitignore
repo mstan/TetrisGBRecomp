@@ -18,3 +18,4 @@ imgui.ini
 
 # Local junction to the workspace-root recompiler clone (was a submodule)
 generated_pre_launcher/
+generated-v11/
